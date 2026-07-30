@@ -54,7 +54,6 @@ const SEP41_FUNCTIONS = [
 const EXECUTION_ERROR_PATTERNS = [
   /wasm trap/i,
   /contract error/i,
-  /invalid/i,
   /unauthorized/i,
   /insufficient/i,
   /overflow/i,
@@ -118,6 +117,10 @@ async function functionExists(contract, fnName, args) {
   if (!SorobanRpc.Api.isSimulationError(result)) {
     return true;
   } // success → exists
+
+  if (isMissingFunctionError(result.error)) {
+    return false;
+  }
 
   // If the error looks like a runtime/logic error the function is present
   if (isExecutionError(result.error)) {

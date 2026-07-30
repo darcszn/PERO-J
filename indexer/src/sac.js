@@ -6,34 +6,58 @@
  */
 import { Asset, Contract, Networks } from "@stellar/stellar-sdk";
 
-const NETWORK_PASSPHRASE = process.env.NETWORK_PASSPHRASE || Networks.TESTNET;
-
 /**
  * Build a lookup map of SAC contract ID → classic asset code for a list of assets.
  * @param {Array<{code: string, issuer?: string}>} assets
  * @returns {Map<string, string>}  contractId → "USDC" | "XLM" etc.
  */
 function buildSacMap(assets) {
+  const networkPassphrase = process.env.NETWORK_PASSPHRASE || Networks.TESTNET;
   const map = new Map();
   for (const { code, issuer } of assets) {
     try {
       const asset = issuer ? new Asset(code, issuer) : Asset.native();
-      const contractId = new Contract(asset.contractId(NETWORK_PASSPHRASE)).contractId();
+      const contractId = new Contract(asset.contractId(networkPassphrase)).contractId();
       map.set(contractId, issuer ? code : "XLM");
-    } catch {
-      // skip malformed entries
+    } catch (err) {
+      // Log malformed entries so operators can fix SAC_ASSETS config instead of
+      // silently dropping them, which would cause detectSac() misses at runtime.
+      console.error(`[sac] skipping malformed SAC entry { code: ${JSON.stringify(code)}, issuer: ${JSON.stringify(issuer)} }:`, err.message);
     }
   }
+  console.log(`[sac] registered ${map.size} SAC asset(s)`);
   return map;
 }
 
-// Well-known SAC assets (extend as needed via env or config)
-const KNOWN_ASSETS = [
-  { code: "native" }, // XLM
-  ...(process.env.SAC_ASSETS ? JSON.parse(process.env.SAC_ASSETS) : []),
-];
+/**
+ * Retrieve current list of assets to include in SAC map.
+ * @returns {Array<{code: string, issuer?: string}>}
+ */
+function getKnownAssets() {
+  let customAssets = [];
+  if (process.env.SAC_ASSETS) {
+    try {
+      const parsed = JSON.parse(process.env.SAC_ASSETS);
+      if (Array.isArray(parsed)) {
+        customAssets = parsed;
+      }
+    } catch {
+      // skip malformed SAC_ASSETS JSON
+    }
+  }
+  return [{ code: "native" }, ...customAssets];
+}
 
-const _sacMap = buildSacMap(KNOWN_ASSETS);
+let _sacMap = buildSacMap(getKnownAssets());
+
+/**
+ * Re-build the SAC lookup map from current environment variables.
+ * @returns {Map<string, string>}
+ */
+export function reloadSacMap() {
+  _sacMap = buildSacMap(getKnownAssets());
+  return _sacMap;
+}
 
 /**
  * Detect whether a contract ID corresponds to a classic Stellar Asset Contract.

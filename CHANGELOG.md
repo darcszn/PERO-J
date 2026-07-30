@@ -8,6 +8,131 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Bug Fixes
 
+- Harden init, add indexer allowlist, cap paging, emit update event ([`8bbe4cc`](../../commit/8bbe4cc83c34cbd85d4b04bb86e8547fcf38b3e5))
+
+Closes [#1](../../issues/1), [#2](../../issues/2), [#3](../../issues/3), [#4](../../issues/4).
+
+  [#1](../../issues/1) init() could be replayed if the instance entry expired. The Admin guard
+  now lives in persistent storage, and every mutating entry point calls
+  bump_ttl() so an active contract never lets its state lapse.
+
+  [#2](../../issues/2) submit_event() only accepted the single admin address, forcing the
+  indexer hot wallet to hold the cold admin key. Adds a persistent
+  IndexerAllowlist (Vec<Address>, capped at MAX_INDEXERS = 20) with
+  add_indexer/remove_indexer admin functions plus get_indexers/is_indexer
+  readers; submit_event now accepts the admin or any allowlisted address.
+
+  [#3](../../issues/3) get_events() accepted a raw u32 limit and would iterate until the host
+  ran out of CPU instructions. Rejects limit > MAX_PAGE (200) with
+  Error::LimitExceeded, and the end-offset computation is now saturating.
+
+  [#4](../../issues/4) update_contract() was silent, so the indexer could not invalidate its
+  ABI cache without polling. It now publishes ("update", contract_id) ->
+  meta.name, mirroring register_contract.
+
+  Two pre-existing build breakages had to be fixed for any of this to
+  compile or run in CI:
+  - Error was declared #[contracttype] rather than #[contracterror], so
+    every panic_with_error! failed to typecheck and the crate did not build.
+  - Cargo.lock resolved soroban-env-host 21.2.1 against ed25519-dalek 3.0.0,
+    which it does not support; pinned back to 2.2.0.
+
+  13 unit tests pass, including a regression test for [#1](../../issues/1) that fails against
+  the old instance-storage implementation
+
+
+- Add database backup strategy ([#106](../../issues/106)) ([`ecd0c8f`](../../commit/ecd0c8f9b30750147e55230e550aca6dd412daf0))
+
+- Add scripts/backup.sh using pg_dump with configurable env vars
+  - Document cron job: 0 2 * * * backup.sh >> /var/log/backup.log 2>&1
+  - Document restore procedure in README.md
+  - Document cloud deployment backups (RDS, Cloud SQL, Supabase, Neon)
+  - Update ROADMAP Tranche 3 deliverable 3.2 to reflect implementation
+  - Add PR_DESCRIPTION.md with detailed description closing [#106](../../issues/106)
+
+  closes [#106](../../issues/106)
+
+
+- Log malformed SAC_ASSETS entries and startup asset count ([`c88a102`](../../commit/c88a10289345f382fee9a7c81a5438698fcbffb5))
+
+- Resolve frontend CI failures ([`3f89ce9`](../../commit/3f89ce9d7c66e2ab70f5ffcf8c3e8ec63053c05e))
+
+- Add skipLibCheck and vite/client types to tsconfig.json
+  - Replace process.env with import.meta.env.DEV in ErrorBoundary
+  - Add distinctFunctions endpoint to API client and server
+  - Add getDistinctFunctions query to database module
+
+
+- Remove unused xdr and StrKey imports ([#30](../../issues/30)) ([`562ca48`](../../commit/562ca484aa0af97ece6b1570db9a0821a9b08808))
+
+Only scValToNative is used in decoder.js. The xdr and StrKey named
+  imports were present in an earlier version but are no longer referenced.
+  Removing dead imports reduces the module's dependency surface and makes
+  it clear what the module actually relies on.
+
+  Closes [#30](../../issues/30)
+
+
+- Handle BigInt in JSON.stringify for raw_data ([`10708cd`](../../commit/10708cd79455d3b74f75b7f9daef07840821e69a))
+
+scValToNative returns BigInt for i64/u64/i128/u128 values. Passing the
+  decoded data directly to JSON.stringify() threw:
+    TypeError: Do not know how to serialize a BigInt
+
+
+- Redact sensitive args and truncate to 64 chars in genericDescription ([#29](../../issues/29)) ([`852cb12`](../../commit/852cb12ef7522bfc20e79275e5ef304014717d86))
+
+- Add isSensitive() helper that flags:
+    * 56-char G-prefixed strings that are not valid strkeys
+    * Raw hex blobs of 64+ chars (32+ byte nonces/keys)
+    * Base64 blobs of 44+ chars (32-byte secrets)
+  - Add sanitiseArg() that redacts sensitive values with [REDACTED]
+    and truncates any value > 64 chars to 'first…last' form
+  - genericDescription now maps args through sanitiseArg instead of
+    String(), preventing private data from leaking into PostgreSQL
+    and the public API
+
+  Closes [#29](../../issues/29)
+
+
+- Reload SAC map on SIGHUP signal ([#34](../../issues/34)) ([`2640006`](../../commit/264000636ba52fdffae2ebffd1b344a2169bf229))
+
+- Clamp scvI128/scvI256 bit-shifting to signed range ([#33](../../issues/33)) ([`8fe5111`](../../commit/8fe51110357b58c743084a5f97f78550e7651cbf))
+
+- Resolve assigned issue fixes ([`34a1377`](../../commit/34a1377ba354aa5d72de57a3f095f9822e8462e1))
+
+- Return readable strings for opaque ScVal variants ([`2b2dd69`](../../commit/2b2dd692d4b1d37f64ba6f4c5a18a139bf8512c1))
+
+scvLedgerKeyContractInstance, scvLedgerKeyNonce, and scvContractInstance
+  previously returned plain objects that serialised to [object Object] when
+  coerced to string (e.g. in genericDescription).
+
+  - scvLedgerKeyContractInstance → "<contract-instance>"
+  - scvContractInstance          → "<contract-instance>"
+  - scvLedgerKeyNonce            → "<nonce:{n}>" (preserves nonce value)
+
+  Adds indexer/test/scval.test.js with 4 test cases covering all three
+  variants and the join-into-description scenario
+
+
+- Bound caller-supplied payloads, add get_admin, harden event counter ([`280bd83`](../../commit/280bd83d5e678d50c71cf91e4dbd15d51d4c5ffc))
+
+- submit_event rejects raw_data larger than MAX_RAW_DATA_BYTES (4096) before
+    touching storage, so a single call cannot bloat on-chain state ([#7](../../issues/7))
+  - add get_admin() view so off-chain tooling can read the admin without
+    guessing the DataKey encoding ([#10](../../issues/10))
+  - event_count()/get_events() now read the sequence counter through a helper
+    that panics with NotInitialized instead of collapsing a missing counter
+    into a misleading 0 ([#11](../../issues/11))
+  - register_contract()/update_contract() reject ABI metadata above
+    MAX_FUNCTIONS (64) or MAX_PARAMS (32) per function ([#12](../../issues/12))
+
+  Also fixes two pre-existing build blockers that made the crate impossible to
+  compile or test: Error carried #[contracttype] instead of #[contracterror]
+  (so panic_with_error! never type-checked), and the lockfile resolved
+  ed25519-dalek to 3.0.0, which soroban-env-host (">=2.0.0") cannot build against
+
+
 - Improve rpc and database resilience ([`76f1d37`](../../commit/76f1d37ba0c5947589f722cc5eabcfee315b66bc))
 
 - Resolve assigned event API and DB issues ([`5d6f68d`](../../commit/5d6f68d79689f2efd244dc8e76531ff9c7cb9bf3))
@@ -121,6 +246,38 @@ Issue [#118](../../issues/118) — Contract admin key management
 
 ### Documentation
 
+- Auto-update CHANGELOG.md [skip ci] ([`f30e7e1`](../../commit/f30e7e125cfcd9a1fcd32a1ff7a30ff28327e27a))
+
+- Auto-update CHANGELOG.md [skip ci] ([`75074c9`](../../commit/75074c9a7160fcddaa5f8adc1d25ae11946c5ef1))
+
+- Auto-update CHANGELOG.md [skip ci] ([`ada6b96`](../../commit/ada6b962732d5808ce0350f76055574f64a4d03e))
+
+- Auto-update CHANGELOG.md [skip ci] ([`2b5bd65`](../../commit/2b5bd65f45eb55ef5534d7bf951e345dc508960e))
+
+- Auto-update CHANGELOG.md [skip ci] ([`ce0cc39`](../../commit/ce0cc3991e752b191d69dc4091f8319076736068))
+
+- Auto-update CHANGELOG.md [skip ci] ([`aeb2d39`](../../commit/aeb2d3966824bee99844d95bc2502022cb190f4e))
+
+- Document GET /api/tokens/:id/volume and add decimals param ([`b512953`](../../commit/b5129536d0e0108978c33c1d93f53dae4ecbce8c))
+
+- Auto-update CHANGELOG.md [skip ci] ([`0ff82b0`](../../commit/0ff82b0afa73997fface376a6441959c44ac7560))
+
+- Auto-update CHANGELOG.md [skip ci] ([`8a5ef83`](../../commit/8a5ef8389fca5e8ec39a134e68bc9f3077fd2ddc))
+
+- Auto-update CHANGELOG.md [skip ci] ([`3846d59`](../../commit/3846d5983235a147141d0b7341965b12303bb9ff))
+
+- Auto-update CHANGELOG.md [skip ci] ([`e65789e`](../../commit/e65789ed540c0e4e8a424058d88eef23d566590f))
+
+- Auto-update CHANGELOG.md [skip ci] ([`f7201b3`](../../commit/f7201b383ce7af4f9288e5087d3bd72113a40868))
+
+- Auto-update CHANGELOG.md [skip ci] ([`2dc0400`](../../commit/2dc0400a37bd7dd94418273a2ae1abd86dd27cf5))
+
+- Auto-update CHANGELOG.md [skip ci] ([`e3eabd2`](../../commit/e3eabd2e1d7b827fce42b24299ccbf3c47f325a7))
+
+- Auto-update CHANGELOG.md [skip ci] ([`5d273dd`](../../commit/5d273dd1fe7383d2cfedccf43cccf53864bfddd1))
+
+- Auto-update CHANGELOG.md [skip ci] ([`0c9ac09`](../../commit/0c9ac099ee45bfbd619c0455d6b292da263fcf4b))
+
 - Auto-update CHANGELOG.md [skip ci] ([`4c6fcf4`](../../commit/4c6fcf4402649059fa993750584eac43dbcd7187))
 
 - Auto-update CHANGELOG.md [skip ci] ([`b031ae7`](../../commit/b031ae7d10100b2a0e2bb5d4ae558d28d2965481))
@@ -165,6 +322,44 @@ Issue [#118](../../issues/118) — Contract admin key management
 
 
 ### Features
+
+- Add end-to-end tests verifying full pipeline (contract → indexer → API → frontend) ([`b774907`](../../commit/b774907e44bc12dfc98166ccb479dac83c91db7a))
+
+Adds a tests/e2e/ directory with Playwright-based E2E tests that:
+
+  - Start a full local stack via Docker Compose (postgres + indexer + frontend)
+    with a Stellar Soroban sandbox (stellar/quickstart)
+  - Build and deploy the ExplorerContract WASM to the sandbox
+  - Initialize the contract and register ABI metadata
+  - Submit a test event via the contract's submit_event function
+  - Wait for the indexer to poll and decode the event
+  - Verify the event appears in the REST API
+  - Assert the frontend renders the decoded description
+  - Test navigation to event detail and contract pages
+  - Verify pagination controls are functional
+
+  The test infrastructure includes:
+  - docker-compose.e2e.yml       — Extended stack with Soroban sandbox
+  - helpers/deploy.js             — Automated contract deployment + seeding
+  - fixtures/explorer-abi.json    — ABI fixture for the ExplorerContract
+  - e2e.test.js                  — 7 Playwright test cases
+  - playwright.config.ts          — Playwright configuration
+  - package.json                 — Dependencies (@playwright/test, @stellar/stellar-sdk)
+  - Makefile targets             — e2e-setup, e2e-build, e2e-up, e2e-down,
+                                    e2e-deploy, e2e-test, e2e, e2e-ci
+  - CI job in ci.yml             — Full E2E on PR/push to main
+
+  closes [#109](../../issues/109)
+
+
+- Add database backup script and documentation ([`aeb57d5`](../../commit/aeb57d5ed4f50e45ad3fb210f3fd7052d7108286))
+
+Add automated PostgreSQL backup via scripts/backup.sh using pg_dump
+  with configurable retention. Document daily cron job, restore
+  procedure, and cloud deployment backup options (RDS, Cloud SQL).
+
+  Closes [#106](../../issues/106)
+
 
 - Add CI pipeline, Docker Compose infrastructure, and frontend containerization ([`99a233a`](../../commit/99a233a5e5a70cf17f53f05e8a956393bf6b048c))
 
@@ -317,6 +512,28 @@ Closes [#3](../../issues/3) — Parse ScVal Types to Native JavaScript Types
     PRINCIPALS metadata. Include signing instructions for file verification.
   - Set NODE_ENV=production in Makefile indexer target to enable production
     optimizations in pino, express, and other Node.js libraries
+
+
+
+### Testing
+
+- Add WASM sandbox integration test stubs ([`34a2dba`](../../commit/34a2dba4cf9dec0223758b8b5891a33584a9b96a))
+
+Add a tests/integration/ directory with stub tests that document the
+  intended integration test flow for the explorer contract deployed to a
+  real Stellar CLI sandbox.  No WASM is compiled and no sandbox is
+  required to run the stubs.
+
+  Files added:
+  - tests/integration/README.md         — setup instructions
+  - tests/integration/run_integration.sh — shell CLI test harness
+  - tests/integration/rust/Cargo.toml   — standalone test crate
+  - tests/integration/rust/src/lib.rs   — Rust stub tests
+
+  Closes [#24](../../issues/24)
+  Closes [#25](../../issues/25)
+  Closes [#27](../../issues/27)
+  Closes [#28](../../issues/28)
 
 
 

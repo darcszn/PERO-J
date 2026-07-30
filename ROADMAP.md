@@ -52,7 +52,7 @@
 | # | Deliverable | Description |
 |---|-------------|-------------|
 | 3.1 | Mainnet contract deployed | `ExplorerContract` deployed to Stellar mainnet; contract ID published in `stellar.toml` |
-| 3.2 | Indexer on mainnet | Indexing live mainnet Soroban events; PostgreSQL hosted with daily backups |
+| 3.2 | Indexer on mainnet | Indexing live mainnet Soroban events; PostgreSQL hosted with daily automated backups via `scripts/backup.sh` and cron |
 | 3.3 | Public frontend at stable URL | Hosted at a permanent domain; mobile-responsive |
 | 3.4 | Developer documentation | `docs/` covering: how to register a contract, ABI schema reference, REST API reference |
 | 3.5 | ≥5 mainnet contracts registered | Outreach to Stellar DeFi projects (StellarSwap, Blend, Phoenix DEX, etc.) to register ABI metadata at launch |

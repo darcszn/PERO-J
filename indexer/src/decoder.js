@@ -1,5 +1,5 @@
 import { LRUCache } from "lru-cache";
-import { scValToNative } from "@stellar/stellar-sdk";
+import { scValToNative } from "@stellar/stellar-sdk"; // only scValToNative is used; xdr and StrKey are intentionally excluded (#30)
 import { db } from "./db.js";
 import { detectSac } from "./sac.js";
 
@@ -26,7 +26,7 @@ const contractMetaCache = new LRUCache({
  */
 export async function decode(ev) {
   const contractId = ev.contractId;
-  const topics = ev.topic.map((t) => scValToNative(t));
+  const topics = ev.topic.map((t, index) => decodeTopic(t, ev, index));
   const data = scValToNative(ev.value);
 
   // First topic is typically the function name symbol
@@ -59,10 +59,34 @@ export async function decode(ev) {
     tx_hash: ev.txHash,
     description,
     raw_topics: topics.map(String),
-    raw_data: JSON.stringify(data),
+    raw_data: JSON.stringify(data, (_, v) => (typeof v === "bigint" ? v.toString() : v)),
     event_addresses: eventAddresses,
     ...(isSac && { sac_asset: assetCode }),
   };
+}
+
+function decodeTopic(topic, ev, index) {
+  try {
+    return scValToNative(topic);
+  } catch (err) {
+    console.warn("Topic decode error:", {
+      contractId: ev.contractId,
+      ledger: ev.ledger,
+      txHash: ev.txHash,
+      topicIndex: index,
+      rawTopic: topicToBase64(topic),
+      error: err?.message ?? String(err),
+    });
+    return "<decode_error>";
+  }
+}
+
+function topicToBase64(topic) {
+  try {
+    return typeof topic?.toXDR === "function" ? topic.toXDR("base64") : String(topic);
+  } catch {
+    return "<unserializable_topic>";
+  }
 }
 
 /**
@@ -97,8 +121,55 @@ function buildDescription(fn, args, data, contractName) {
   }
 }
 
+/** Regex for a valid Stellar public key (G… strkey). */
+const VALID_STRKEY_RE = /^G[A-Z0-9]{55}$/;
+
+/**
+ * Return true when a stringified argument value looks sensitive and should be
+ * redacted from the public description.  Matches:
+ *  - 56-character strings starting with G that are NOT valid strkeys — could
+ *    be encoded secrets masquerading as addresses.
+ *  - Hex strings of 32+ bytes (64+ hex chars) — likely raw key / nonce material.
+ *  - Base64 blobs of 44+ chars — could encode 32-byte secrets.
+ *
+ * @param {string} s - Stringified argument value.
+ * @returns {boolean}
+ */
+function isSensitive(s) {
+  // 56-char G-prefixed string that is NOT a valid public strkey
+  if (s.length === 56 && s.startsWith("G") && !VALID_STRKEY_RE.test(s)) return true;
+  // Raw hex data: 64+ contiguous hex characters
+  if (/^[0-9a-fA-F]{64,}$/.test(s)) return true;
+  // Base64 blob of ≥ 44 chars (covers 32-byte secrets encoded in base64)
+  if (/^[A-Za-z0-9+/]{44,}={0,2}$/.test(s)) return true;
+  return false;
+}
+
+/**
+ * Sanitise a single stringified argument value for safe inclusion in a
+ * human-readable description:
+ *  1. Redact values that match a known sensitive pattern with "[REDACTED]".
+ *  2. Truncate values longer than 64 characters to "first…last" form.
+ *
+ * @param {unknown} val - Raw decoded argument value.
+ * @returns {string}
+ */
+function sanitiseArg(val) {
+  const s = String(val);
+  if (isSensitive(s)) {
+    return "[REDACTED]";
+  }
+  if (s.length > 64) {
+    return `${s.slice(0, 32)}…${s.slice(-16)}`;
+  }
+  return s;
+}
+
 /**
  * Produce a generic description for unrecognised function names.
+ * Argument values are sanitised (truncated + sensitive patterns redacted)
+ * before being embedded in the description to prevent leaking private data
+ * into PostgreSQL / the public API.
  *
  * @param {string} fn           - Function / event name
  * @param {unknown[]} args      - Decoded topic values
@@ -107,7 +178,7 @@ function buildDescription(fn, args, data, contractName) {
  * @returns {string}
  */
 function genericDescription(fn, args, data, contractId) {
-  const argStr = args.map(String).join(", ");
+  const argStr = args.map(sanitiseArg).join(", ");
   return `${fn}(${argStr}) called on ${contractId}`;
 }
 

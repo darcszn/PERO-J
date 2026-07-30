@@ -1,6 +1,10 @@
 import { xdr, StrKey } from "@stellar/stellar-sdk";
 import { scValToJs } from "./scval.js";
 
+// Used by: planned explorer transaction authorization-chain display.
+// Roadmap reference: CHANGELOG.md Issue #4 documents this decoder as the basis
+// for surfacing InvokeHostFunctionOp auth[] signer and invocation details.
+
 /**
  * Extract and decode the ContractAuth (SorobanAuthorizationEntry) array
  * from an InvokeHostFunctionOp XDR base64 string or xdr.Operation object.

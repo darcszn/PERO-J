@@ -65,6 +65,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 export const api = {
+  distinctFunctions: () => get<string[]>("/functions"),
   events: (params: { contract?: string; fn?: string; q?: string; page?: number }) => {
     const q = new URLSearchParams();
     if (params.contract) q.set("contract", params.contract);

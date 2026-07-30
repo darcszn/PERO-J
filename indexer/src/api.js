@@ -81,6 +81,15 @@ export function startApi() {
     })
   );
 
+  // GET /api/functions — distinct function names across all events
+  app.get(
+    "/api/functions",
+    asyncHandler(async (req, res) => {
+      const result = await db.getDistinctFunctions();
+      res.json(result);
+    })
+  );
+
   // GET /api/events?contract=&fn=&page=&q=
   app.get(
     "/api/events",
@@ -128,7 +137,16 @@ export function startApi() {
   app.post(
     "/api/contracts",
     asyncHandler(async (req, res) => {
-      await db.upsertContractMeta(req.body);
+      const existing = await db.getContractMeta(req.body.id);
+      const registeredBy = req.body.registered_by ?? existing?.registered_by;
+
+      if (existing?.registered_by && !registeredBy) {
+        return res
+          .status(400)
+          .json({ error: "registered_by is required to update contract metadata" });
+      }
+
+      await db.upsertContractMeta({ ...req.body, registered_by: registeredBy });
       res.status(201).json({ ok: true });
     })
   );
@@ -145,17 +163,32 @@ export function startApi() {
   );
 
   // GET /api/tokens/:id/volume — 24-hour rolling transfer volume
+  // Query params:
+  //   decimals (optional, integer) — override the token decimal precision instead of
+  //   fetching it from on-chain metadata / simulation.  Useful when the simulation call
+  //   would add latency or the caller already knows the precision.
   app.get(
     "/api/tokens/:id/volume",
     asyncHandler(async (req, res) => {
       const contractId = req.params.id;
-      // Fetch decimals from on-chain metadata (cached via contract registry or live sim)
-      let decimals = 7;
-      try {
-        const meta = await fetchTokenMetadata(contractId);
-        decimals = meta.decimals;
-      } catch {
-        /* use default */
+
+      // Allow caller to bypass the metadata lookup with an explicit decimals override.
+      let decimals;
+      if (req.query.decimals !== undefined) {
+        const parsed = parseInt(req.query.decimals, 10);
+        if (isNaN(parsed) || parsed < 0 || parsed > 38) {
+          return res.status(400).json({ error: "decimals must be an integer between 0 and 38" });
+        }
+        decimals = parsed;
+      } else {
+        // Fetch decimals from on-chain metadata (cached via contract registry or live sim)
+        decimals = 7;
+        try {
+          const meta = await fetchTokenMetadata(contractId);
+          decimals = meta.decimals;
+        } catch {
+          /* use default */
+        }
       }
 
       const volume = await db.get24hVolume(contractId, decimals);

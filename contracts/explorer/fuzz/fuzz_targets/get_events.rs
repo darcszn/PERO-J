@@ -7,7 +7,7 @@ use soroban_sdk::{
     Address, Bytes, BytesN, Env, String, Vec,
     symbol_short,
 };
-use soroban_explorer_contract::{ExplorerContract, ExplorerContractClient};
+use soroban_explorer_contract::{ExplorerContract, ExplorerContractClient, MAX_PAGE};
 
 #[derive(Arbitrary, Debug)]
 struct GetEventsInput {
@@ -39,13 +39,15 @@ fuzz_target!(|input: GetEventsInput| {
         );
     }
 
-    let result = client.get_events(&input.from, &input.limit);
+    // `limit` above MAX_PAGE is rejected by the contract, so fuzz the accepted range.
+    let limit = input.limit % (MAX_PAGE + 1);
+    let result = client.get_events(&input.from, &limit);
 
     assert!(
-        result.len() <= input.limit as usize,
+        result.len() <= limit as usize,
         "result length {} exceeds limit {}",
         result.len(),
-        input.limit
+        limit
     );
 
     if input.from < total {

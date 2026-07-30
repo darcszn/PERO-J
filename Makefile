@@ -86,6 +86,52 @@ load-test:
 	  --env API_BASE_URL=$(API_BASE_URL) \
 	  tests/load/api_load_test.js
 
+# ── E2E tests (issue #109) ────────────────────────────────────────────────────
+# End-to-end test verifying the full pipeline: contract → indexer → API → frontend
+# Prerequisites: Docker, Rust (for WASM build), soroban CLI
+#
+# Targets:
+#   e2e-setup     — Install Playwright + soroban CLI deps
+#   e2e-build     — Build the Docker images for the stack
+#   e2e-up        — Start the full E2E stack (sandbox + postgres + indexer + frontend)
+#   e2e-down      — Stop and remove the E2E stack
+#   e2e-deploy    — Build WASM, deploy contract, seed test data
+#   e2e-test      — Run the Playwright E2E tests
+#   e2e           — Full E2E run: build → up → deploy → test → down
+#   e2e-ci        — CI variant: same as e2e but with --wait and no --detach
+
+E2E_DIR  := tests/e2e
+COMPOSE  := docker compose -f $(E2E_DIR)/docker-compose.e2e.yml
+
+e2e-setup:
+	cd $(E2E_DIR) && npm install
+	cd $(E2E_DIR) && npx playwright install chromium
+
+e2e-build:
+	$(COMPOSE) build
+
+e2e-up:
+	$(COMPOSE) up -d --wait
+
+e2e-down:
+	$(COMPOSE) down -v
+
+e2e-deploy: build
+	cd $(E2E_DIR) && node helpers/deploy.js
+
+e2e-test:
+	cd $(E2E_DIR) && npx playwright test
+
+e2e: e2e-setup e2e-build e2e-up e2e-deploy e2e-test
+	$(MAKE) e2e-down
+
+e2e-ci:
+	$(MAKE) e2e-setup
+	$(COMPOSE) up -d --wait
+	$(MAKE) e2e-deploy
+	cd $(E2E_DIR) && npx playwright test --reporter=github
+	$(MAKE) e2e-down
+
 # ── Changelog ─────────────────────────────────────────────────────────────────
 # Regenerate CHANGELOG.md from conventional commits using git-cliff.
 # Install: cargo install git-cliff  OR  brew install git-cliff

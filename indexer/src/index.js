@@ -1,8 +1,11 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import { SorobanRpc } from "@stellar/stellar-sdk";
 import { startApi } from "./api.js";
 import { db } from "./db.js";
 import { decode } from "./decoder.js";
+import { reloadSacMap } from "./sac.js";
+
+dotenv.config();
 
 /** @typedef {import('./types.js').HealthState} HealthState */
 
@@ -60,6 +63,11 @@ function gracefulShutdown() {
 
 process.on("SIGTERM", gracefulShutdown);
 process.on("SIGINT", gracefulShutdown);
+process.on("SIGHUP", () => {
+  console.log("SIGHUP received, reloading environment and SAC map...");
+  dotenv.config({ override: true });
+  reloadSacMap();
+});
 
 async function run() {
   await db.init();

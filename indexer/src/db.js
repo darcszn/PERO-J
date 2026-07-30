@@ -294,8 +294,8 @@ export const db = {
 
   /**
    * Insert or update ABI metadata for a contract.
-   * On conflict (same id) updates name, description, and functions only —
-   * registered_by and created_at are preserved.
+   * On conflict (same id) updates name, description, functions, and registered_by.
+   * created_at is preserved.
    *
    * @param {ContractMeta} meta
    * @returns {Promise<void>}
@@ -304,9 +304,20 @@ export const db = {
     await pool.query(
       `INSERT INTO contracts (id, name, description, functions, registered_by)
        VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (id) DO UPDATE SET name=$2, description=$3, functions=$4`,
+       ON CONFLICT (id) DO UPDATE SET name=$2, description=$3, functions=$4, registered_by=$5`,
       [meta.id, meta.name, meta.description, JSON.stringify(meta.functions), meta.registered_by]
     );
+  },
+
+  /**
+   * Fetch distinct function names from the events table.
+   * @returns {Promise<string[]>}
+   */
+  async getDistinctFunctions() {
+    const { rows } = await pool.query(
+      "SELECT DISTINCT function FROM events ORDER BY function"
+    );
+    return rows.map((r) => r.function);
   },
 
   /**

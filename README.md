@@ -106,13 +106,20 @@ make dev
 |----------|-------------|
 | `init(admin)` | Initialise contract with admin address |
 | `transfer_admin(current_admin, new_admin)` | Transfer admin rights; both parties must sign |
+| `add_indexer(admin, indexer)` | Allowlist a hot wallet as a trusted event submitter (max 20) |
+| `remove_indexer(admin, indexer)` | Revoke a previously allowlisted indexer |
+| `get_indexers()` | List allowlisted indexer addresses |
+| `is_indexer(address)` | Whether an address may submit events (admin or allowlisted) |
 | `register_contract(caller, contract_id, meta)` | Register ABI metadata for a contract |
-| `update_contract(caller, contract_id, meta)` | Update metadata (admin or registrant) |
+| `update_contract(caller, contract_id, meta)` | Update metadata (admin or registrant); emits `update` |
 | `get_contract(contract_id)` | Fetch contract metadata |
-| `submit_event(...)` | Persist a decoded event (admin only) |
+| `submit_event(...)` | Persist a decoded event (admin or allowlisted indexer) |
 | `get_event(seq)` | Fetch event by sequence number |
-| `get_events(from, limit)` | Paginated event list |
+| `get_events(from, limit)` | Paginated event list; `limit` capped at 200 |
 | `event_count()` | Total stored events |
+
+Events emitted: `register`, `update`, `decoded`, `adm_xfr`, `idx_add`, `idx_rm`.
+The `update` topic lets the indexer invalidate its ABI cache without polling storage.
 
 ---
 
@@ -126,11 +133,34 @@ make dev
 | `GET /api/contracts/:id` | Contract ABI metadata |
 | `POST /api/contracts` | Register contract metadata |
 | `GET /api/wallet/:address` | Wallet event history |
+| `GET /api/tokens/:id/volume?decimals=` | 24-hour rolling transfer volume for a SEP-41 token. Optional `decimals` query param (integer 0–38) overrides the on-chain metadata lookup. |
 
 PostgreSQL `events.seq` is the canonical REST/frontend identifier. On-chain
 `EventSeq` values are stored separately as nullable `onchain_seq` values because
 the database row sequence and contract submission sequence are different
 namespaces and can diverge.
+
+### Volume endpoint
+
+`GET /api/tokens/:id/volume` returns the 24-hour rolling transfer volume for a SEP-41 token.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` (path) | string | yes | Contract ID of the SEP-41 token |
+| `decimals` (query) | integer 0–38 | no | Override decimal precision. When omitted, decimals are resolved from on-chain metadata / simulation (defaults to 7 if unavailable). |
+
+Example response:
+
+```json
+{
+  "contract_id": "CCWAMYJME4H5CKG7OLXGC2T4M6FL52XCZ3OQOAV6LL3GLA4RO4WH3ASP",
+  "window": "24h",
+  "volume": "1048576.0000000",
+  "decimals": 7
+}
+```
+
+
 
 ### Uptime Monitoring
 
@@ -251,6 +281,72 @@ The decoder recognises SEP-41 token events (`transfer`, `mint`, `burn`) and form
 | [TEAM.md](TEAM.md) | Team bios and qualification evidence |
 | [MANIFEST.md](MANIFEST.md) | Full project manifest |
 | [stellar.toml](stellar.toml) | SEP-1 compliant network info |
+
+---
+
+## Database Backup
+
+Automated backups protect all decoded event history and registered ABI metadata stored in PostgreSQL.
+
+### Local Backup Script
+
+`scripts/backup.sh` uses `pg_dump` to produce a plain-text SQL dump of the `soroban_explorer` database.
+
+```bash
+./scripts/backup.sh
+```
+
+Environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PGHOST` | `localhost` | PostgreSQL host |
+| `PGPORT` | `5432` | PostgreSQL port |
+| `PGUSER` | `user` | PostgreSQL user |
+| `PGDATABASE` | `soroban_explorer` | Database name |
+| `PGPASSWORD` | (from env) | PostgreSQL password |
+| `BACKUP_DIR` | `./backups` | Directory for dump files |
+| `LOG_FILE` | `./logs/backup.log` | Backup log path |
+
+### Automated Cron Job
+
+Schedule daily backups at 02:00 UTC:
+
+```cron
+0 2 * * * /workspaces/PERO-J/scripts/backup.sh >> /var/log/backup.log 2>&1
+```
+
+Or deploy with a systemd timer, Docker cron, or your platform's scheduled task scheduler.
+
+### Restore Procedure
+
+To restore a backup into PostgreSQL:
+
+```bash
+# Stop the indexer to avoid data inconsistency
+# Then pipe the dump into psql:
+psql -h <host> -U <user> -d <database> -f backups/soroban_explorer_<timestamp>.sql
+```
+
+Or restore to a new database for verification:
+
+```bash
+createdb -h <host> -U <user> soroban_explorer_restore
+psql -h <host> -U <user> -d soroban_explorer_restore -f backups/soroban_explorer_<timestamp>.sql
+```
+
+### Cloud Deployments
+
+For cloud-hosted PostgreSQL, enable automated backups via the managed service:
+
+| Platform | Setting |
+|----------|---------|
+| **AWS RDS** | Enable automated backups in the RDS instance configuration; set backup retention period (recommended: 7+ days). Use snapshots for point-in-time recovery. |
+| **Google Cloud SQL** | Enable automated backups in the instance settings; set backup start time and retention period. Use scheduled exports to Cloud Storage for additional safety. |
+| **Supabase** | Dashboard > Project Settings > Database > Backups. Enable daily automatic backups. |
+| **Neon** | Dashboard > Settings > Branches & Backups. Configure branch protection and auto-backup retention. |
+
+For any cloud provider, also export a `pg_dump` weekly to object storage (S3, GCS) as an offsite copy.
 
 ---
 

@@ -1,0 +1,23 @@
+{
+  "id": "__EXPLORER_CONTRACT_ID__",
+  "name": "PERO-J Explorer",
+  "description": "Soroban Smart Block Explorer – contract event decoder registry",
+  "functions": [
+    {
+      "name": "decoded",
+      "description": "A decoded event submitted by the indexer",
+      "inputs": ["contract_id", "function_name"]
+    },
+    {
+      "name": "register",
+      "description": "A new contract was registered",
+      "inputs": ["contract_id"]
+    },
+    {
+      "name": "adm_xfr",
+      "description": "Admin rights were transferred",
+      "inputs": ["old_admin", "new_admin"]
+    }
+  ],
+  "registered_by": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+}

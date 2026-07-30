@@ -12,10 +12,7 @@ function makeEvent(type, topics, data, withContractId = true) {
     ext: new xdr.ExtensionPoint(0),
     contractId: withContractId ? CONTRACT_ID_BYTES : null,
     type,
-    body: new xdr.ContractEventBody(
-      0,
-      new xdr.ContractEventV0({ topics, data })
-    ),
+    body: new xdr.ContractEventBody(0, new xdr.ContractEventV0({ topics, data })),
   }).toXDR("base64");
 }
 

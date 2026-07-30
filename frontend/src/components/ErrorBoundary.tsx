@@ -56,7 +56,7 @@ export default class ErrorBoundary extends Component<Props, State> {
             <p style={{ color: "var(--muted)", marginBottom: 24 }}>
               We encountered an unexpected error while rendering this page.
             </p>
-            {process.env.NODE_ENV === "development" && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <details
                 style={{
                   textAlign: "left",

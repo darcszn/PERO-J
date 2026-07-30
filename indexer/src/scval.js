@@ -44,32 +44,34 @@ export function scValToJs(val) {
 
     case "scvU128": {
       const u = val.u128();
-      return (BigInt(u.hi().toString()) << 64n) | BigInt(u.lo().toString());
+      const hiB = BigInt.asUintN(64, BigInt(u.hi().toString()));
+      const loB = BigInt.asUintN(64, BigInt(u.lo().toString()));
+      return BigInt.asUintN(128, (hiB << 64n) | loB);
     }
 
     case "scvI128": {
       const i = val.i128();
-      return (BigInt(i.hi().toString()) << 64n) | BigInt(i.lo().toString());
+      const hiB = BigInt.asUintN(64, BigInt(i.hi().toString()));
+      const loB = BigInt.asUintN(64, BigInt(i.lo().toString()));
+      return BigInt.asIntN(128, (hiB << 64n) | loB);
     }
 
     case "scvU256": {
       const u = val.u256();
-      return (
-        (BigInt(u.hiHi().toString()) << 192n) |
-        (BigInt(u.hiLo().toString()) << 128n) |
-        (BigInt(u.loHi().toString()) << 64n) |
-        BigInt(u.loLo().toString())
-      );
+      const hiHiB = BigInt.asUintN(64, BigInt(u.hiHi().toString()));
+      const hiLoB = BigInt.asUintN(64, BigInt(u.hiLo().toString()));
+      const loHiB = BigInt.asUintN(64, BigInt(u.loHi().toString()));
+      const loLoB = BigInt.asUintN(64, BigInt(u.loLo().toString()));
+      return BigInt.asUintN(256, (hiHiB << 192n) | (hiLoB << 128n) | (loHiB << 64n) | loLoB);
     }
 
     case "scvI256": {
       const i = val.i256();
-      return (
-        (BigInt(i.hiHi().toString()) << 192n) |
-        (BigInt(i.hiLo().toString()) << 128n) |
-        (BigInt(i.loHi().toString()) << 64n) |
-        BigInt(i.loLo().toString())
-      );
+      const hiHiB = BigInt.asUintN(64, BigInt(i.hiHi().toString()));
+      const hiLoB = BigInt.asUintN(64, BigInt(i.hiLo().toString()));
+      const loHiB = BigInt.asUintN(64, BigInt(i.loHi().toString()));
+      const loLoB = BigInt.asUintN(64, BigInt(i.loLo().toString()));
+      return BigInt.asIntN(256, (hiHiB << 192n) | (hiLoB << 128n) | (loHiB << 64n) | loLoB);
     }
 
     case "scvBytes":
@@ -106,13 +108,13 @@ export function scValToJs(val) {
     }
 
     case "scvLedgerKeyContractInstance":
-      return { type: "ledgerKeyContractInstance" };
+      return "<contract-instance>";
 
     case "scvLedgerKeyNonce":
-      return { type: "ledgerKeyNonce", nonce: BigInt(val.nonceKey().nonce().toString()) };
+      return `<nonce:${BigInt(val.nonceKey().nonce().toString())}>`;
 
     case "scvContractInstance":
-      return { type: "contractInstance" };
+      return "<contract-instance>";
 
     default:
       return String(val);
